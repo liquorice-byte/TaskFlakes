@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  name          String?
+  avatarUrl     String?  @map("avatar_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  assignments   Assignment[]
+  subjects      Subject[]
+  refreshTokens RefreshToken[]
+  settings      UserSettings?
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model UserSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique @map("user_id")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  defaultSubjectColor   String   @default("#6B7280") @map("default_subject_color")
+  semesterStart         DateTime? @map("semester_start")
+  dailyCutoffHour       Int      @default(22) @map("daily_cutoff_hour")
+
+  theme                 Theme    @default(SYSTEM)
+  language              Language @default(ZH_CN)
+
+  defaultPriority       Priority @default(MEDIUM) @map("default_priority")
+  defaultAssignmentType AssignmentType @default(WRITTEN) @map("default_assignment_type")
+  showCompletedByDefault Boolean  @default(true) @map("show_completed_by_default")
+
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum Language {
+  ZH_CN
+  EN
+}
+
+model Subject {
+  id          String   @id @default(cuid())
+  name        String
+  color       String   @default("#6B7280")
+  userId      String   @map("user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+
+  @@unique([name, userId])
+  @@index([userId])
+}
+
+model Assignment {
+  id          String         @id @default(cuid())
+  title       String
+  description String?
+  status      Status         @default(NOT_STARTED)
+  priority    Priority       @default(MEDIUM)
+  type        AssignmentType @default(WRITTEN)
+  dueDate     DateTime?      @map("due_date")
+  completedAt DateTime?      @map("completed_at")
+
+  parentId    String?        @map("parent_id")
+  parent      Assignment?    @relation("AssignmentChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Assignment[]   @relation("AssignmentChildren")
+
+  subjectId   String?        @map("subject_id")
+  subject     Subject?       @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  userId      String         @map("user_id")
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([priority])
+  @@index([subjectId])
+}
+
+enum Status {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AssignmentType {
+  WRITTEN
+  COMPOSITE
+  WRITING
+  WATCHING
+  PREVIEW
+  ORAL
+}
