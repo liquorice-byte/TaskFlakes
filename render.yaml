@@ -1,17 +1,19 @@
+# Render Blueprint — 后端 API + PostgreSQL（前端部署在 Vercel）
 services:
   - type: web
-    name: assignment-tracker-api
+    name: taskflakes-api
     runtime: node
     region: oregon
     plan: free
     buildCommand: cd backend && npm ci && npx prisma generate && npm run build
     startCommand: cd backend && npx prisma migrate deploy && node dist/index.js
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
         fromDatabase:
-          name: assignment-tracker-db
+          name: taskflakes-db
           property: connectionString
       - key: JWT_ACCESS_SECRET
         generateValue: true
@@ -21,27 +23,13 @@ services:
         value: "15m"
       - key: JWT_REFRESH_EXPIRES_IN
         value: "7d"
+      # 部署完 Vercel 前端后，把下面改成你的 Vercel 域名（如 https://taskflakes.vercel.app）
       - key: CORS_ORIGIN
-        value: https://assignment-tracker-web.onrender.com
+        value: https://taskflakes.vercel.app
       - key: PORT
         value: 10000
 
-  - type: static
-    name: assignment-tracker-web
-    region: oregon
-    buildCommand: cd frontend && npm ci && npm run build
-    staticPublishPath: ./frontend/dist
-    envVars:
-      - key: VITE_API_BASE_URL
-        value: https://assignment-tracker-api.onrender.com
-      - key: VITE_APP_NAME
-        value: "Assignments Tracker"
-    routes:
-      - type: rewrite
-        source: /api/*
-        destination: https://assignment-tracker-api.onrender.com/api/*
-
 databases:
-  - name: assignment-tracker-db
+  - name: taskflakes-db
     region: oregon
     plan: free
