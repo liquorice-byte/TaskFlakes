@@ -34,7 +34,7 @@ die_backend_down() {
   echo "  npm run dev"
   echo ""
   echo "启动后看到以下日志再跑测试脚本："
-  echo "  🚀 Assignment Tracker API running on port 4000"
+  echo "  🚀 TaskFlakes API running on port 4000"
   echo ""
   exit 1
 }

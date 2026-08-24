@@ -10,6 +10,7 @@ import {
   updateAssignmentBodySchema,
   assignmentIdParamSchema,
   listAssignmentsQuerySchema,
+  assignmentCountsQuerySchema,
   setStatusBodySchema,
   createSubtaskBodySchema,
 } from '../validations/schemas.js';
@@ -46,6 +47,18 @@ router.get('/', validateQuery(listAssignmentsQuerySchema), async (req, res, next
     const q = listAssignmentsQuerySchema.parse(req.query);
     const { data, meta } = await assignmentService.list(userId, q);
     ok(res, data, meta);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Global status counts (must be declared before /:id to avoid capture)
+router.get('/counts', validateQuery(assignmentCountsQuerySchema), async (req, res, next) => {
+  try {
+    const userId = (req as unknown as AuthenticatedRequest).user.id;
+    const q = assignmentCountsQuerySchema.parse(req.query);
+    const counts = await assignmentService.counts(userId, q);
+    ok(res, counts);
   } catch (e) {
     next(e);
   }

@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Bar,
   BarChart,
@@ -106,6 +107,7 @@ function WoWBadge({ value }: { value: number }) {
 }
 
 export function StatsPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const nav = useNavigate();
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -193,8 +195,8 @@ export function StatsPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-50">Analytics</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Trends, subject mix, and overdue hotspots — powered by service-side stats.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-50">{t('stats.title_')}</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('stats.trendsSubjectMix')}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -203,10 +205,10 @@ export function StatsPage() {
             className="btn-secondary flex items-center gap-2 disabled:opacity-60"
           >
             <UploadCloud className="h-4 w-4" />
-            {importMutation.isPending ? 'Importing…' : 'Import'}
+            {importMutation.isPending ? t('stats.importing') : t('stats.import')}
           </button>
           <button onClick={exportBtn} className="btn-primary flex items-center gap-2">
-            <Download className="h-4 w-4" /> Export JSON
+            <Download className="h-4 w-4" /> {t('stats.exportJson')}
           </button>
           <input ref={fileRef} onChange={handleFile} type="file" accept="application/json" className="hidden" />
         </div>
@@ -214,24 +216,24 @@ export function StatsPage() {
 
       {/* Overview cards */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Total" value={overview?.total ?? 0} icon={ClipboardList} tone="indigo" />
+        <StatCard label={t('stats.total')} value={overview?.total ?? 0} icon={ClipboardList} tone="indigo" />
         <StatCard
-          label="Done"
+          label={t('stats.done')}
           value={overview?.completed ?? 0}
           tone="green"
           icon={CheckCircle2}
           hint={<SparklineProgress value={overview?.doneRatePct ?? 0} />}
         />
         <StatCard
-          label="In progress"
+          label={t('stats.inProgress')}
           value={overview?.inProgress ?? 0}
           icon={Clock}
           tone="sky"
           hint={overview ? <WoWBadge value={overview.weekOverWeekDelta} /> : undefined}
         />
-        <StatCard label="Not started" value={overview?.notStarted ?? 0} icon={BarChart3} tone="gray" />
-        <StatCard label="High priority" value={overview?.highPriority ?? 0} icon={Flame} tone="amber" />
-        <StatCard label="Overdue" value={overview?.overdue ?? 0} icon={AlertCircle} tone="red" />
+        <StatCard label={t('stats.notStarted')} value={overview?.notStarted ?? 0} icon={BarChart3} tone="gray" />
+        <StatCard label={t('stats.highPriority')} value={overview?.highPriority ?? 0} icon={Flame} tone="amber" />
+        <StatCard label={t('stats.overdue')} value={overview?.overdue ?? 0} icon={AlertCircle} tone="red" />
       </section>
 
       {/* Charts row 1: Trend + Pie */}
@@ -239,8 +241,8 @@ export function StatsPage() {
         <div className="card p-5 lg:col-span-2">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Last 14 days</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Created vs completed assignments</p>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('stats.last14Days')}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('stats.createdVsCompleted')}</p>
             </div>
             <Highlighter className="h-4 w-4 text-indigo-500" />
           </div>
@@ -268,8 +270,8 @@ export function StatsPage() {
         <div className="card p-5">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Subject mix</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Share of assignments</p>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('stats.subjectMix')}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('stats.shareOfAssignments')}</p>
             </div>
           </div>
           <div className="mt-2" style={{ height: chartHeight }}>
@@ -306,8 +308,8 @@ export function StatsPage() {
         <div className="card p-5 lg:col-span-2">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Assignment type — status breakdown</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Done vs pending per type</p>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('stats.typeBreakdown')}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('stats.doneVsPending')}</p>
             </div>
           </div>
           <div className="mt-4" style={{ height: chartHeight }}>
@@ -332,8 +334,8 @@ export function StatsPage() {
         <div className="card p-5">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">This week</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Completed by day</p>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('stats.thisWeek')}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('stats.completedByDay')}</p>
             </div>
             <CalendarDays className="h-4 w-4 text-amber-500" />
           </div>
@@ -367,14 +369,14 @@ export function StatsPage() {
       <section className="card p-5">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Overdue Top 5</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Oldest uncompleted first — tackle these first</p>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('stats.top5Overdue')}</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('stats.oldestFirst')}</p>
           </div>
           <AlertCircle className="h-4 w-4 text-red-500" />
         </div>
         {(s?.overdueTop5 ?? []).length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-gray-200 p-8 text-center text-sm text-gray-500 dark:border-white/10 dark:text-gray-400">
-            🎉 No overdue assignments. Keep up the momentum!
+            🎉 {t('stats.noOverdue')}
           </div>
         ) : (
           <div className="mt-4 divide-y divide-gray-100 dark:divide-white/5 overflow-hidden rounded-lg border border-gray-100 dark:border-white/10">
@@ -390,13 +392,14 @@ export function StatsPage() {
 }
 
 function OverdueHeader() {
+  const { t } = useTranslation();
   return (
     <div className="grid grid-cols-12 gap-2 bg-gray-50 px-4 py-2 text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:bg-white/5 dark:text-gray-400">
-      <div className="col-span-5">Assignment</div>
-      <div className="col-span-2">Subject</div>
-      <div className="col-span-2">Priority</div>
-      <div className="col-span-1 text-right">Due</div>
-      <div className="col-span-2 text-right">Overdue</div>
+      <div className="col-span-5">{t('stats.assignment')}</div>
+      <div className="col-span-2">{t('common.subject')}</div>
+      <div className="col-span-2">{t('common.priority')}</div>
+      <div className="col-span-1 text-right">{t('stats.due')}</div>
+      <div className="col-span-2 text-right">{t('stats.overdueDays')}</div>
     </div>
   );
 }

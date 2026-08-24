@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth.store';
 import { register } from '@/services/auth.api';
 import { UserPlus, Mail, Lock, User, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export function RegisterPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
 
@@ -18,11 +20,24 @@ export function RegisterPage() {
     setError('');
 
     try {
+      if (!form.name.trim()) {
+        throw new Error(t('auth.nameRequired'));
+      }
+      if (form.password.length < 8) {
+        throw new Error(t('auth.passwordTooShort'));
+      }
+      if (form.password.length > 100) {
+        throw new Error(t('auth.passwordTooLong'));
+      }
+      if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(form.password)) {
+        throw new Error(t('auth.passwordRule'));
+      }
+
       const result = await register(form);
       setAuth(result.user, result.accessToken);
       navigate('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(err instanceof Error ? err.message : t('auth.registrationFailed'));
     } finally {
       setLoading(false);
     }
@@ -35,9 +50,9 @@ export function RegisterPage() {
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand-500 text-white mb-4">
             <UserPlus className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Create account</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('auth.createAccount')}</h1>
           <p className="mt-2 text-sm text-gray-500">
-            Start tracking your assignments today
+            {t('auth.startJourney')}
           </p>
         </div>
 
@@ -49,7 +64,7 @@ export function RegisterPage() {
           )}
 
           <div>
-            <label className="label-field">Name</label>
+            <label className="label-field">{t('auth.name')}</label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
               <input
@@ -57,13 +72,13 @@ export function RegisterPage() {
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className="input-field pl-10"
-                placeholder="Your name"
+                placeholder={t('auth.namePlaceholder')}
               />
             </div>
           </div>
 
           <div>
-            <label className="label-field">Email</label>
+            <label className="label-field">{t('auth.email')}</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
               <input
@@ -71,14 +86,14 @@ export function RegisterPage() {
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 className="input-field pl-10"
-                placeholder="you@example.com"
+                placeholder={t('auth.emailPlaceholder')}
                 required
               />
             </div>
           </div>
 
           <div>
-            <label className="label-field">Password</label>
+            <label className="label-field">{t('auth.password')}</label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
               <input
@@ -86,7 +101,7 @@ export function RegisterPage() {
                 value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                 className="input-field pl-10"
-                placeholder="Min 8 chars, upper + lower + number"
+                placeholder={t('auth.passwordPlaceholder')}
                 required
                 minLength={8}
               />
@@ -97,18 +112,18 @@ export function RegisterPage() {
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating account...
+                {t('auth.creatingAccount')}
               </>
             ) : (
-              'Create account'
+              t('auth.createAccount')
             )}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-500">
-          Already have an account?{' '}
+          {t('auth.alreadyHaveAccount')}{' '}
           <Link to="/login" className="font-medium text-brand-600 hover:text-brand-500">
-            Sign in
+            {t('auth.signIn')}
           </Link>
         </p>
       </div>

@@ -1,7 +1,7 @@
 {
-  "name": "assignment-tracker-api",
+  "name": "taskflakes-api",
   "version": "0.1.0",
-  "description": "Assignment Tracker GTD Backend API",
+  "description": "TaskFlakes - Assignment Tracker GTD Backend API",
   "type": "module",
   "main": "dist/index.js",
   "prisma": {

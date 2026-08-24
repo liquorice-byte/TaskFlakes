@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes.js';
 import subjectRoutes from './subject.routes.js';
+import taskTypeRoutes from './taskType.routes.js';
 import assignmentRoutes from './assignment.routes.js';
 import statsRoutes from './stats.routes.js';
 import settingsRoutes from './settings.routes.js';
@@ -10,6 +11,7 @@ const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/subjects', subjectRoutes);
+router.use('/task-types', taskTypeRoutes);
 router.use('/assignments', assignmentRoutes);
 router.use('/stats', statsRoutes);
 router.use('/settings', settingsRoutes);

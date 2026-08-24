@@ -21,6 +21,21 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // Extract the structured backend error (if any) so UI can show the real cause.
+    const backendError = error.response?.data?.error;
+    const topMsg: string | undefined = backendError?.message;
+    const details: Record<string, string> | undefined = backendError?.details;
+    let enrichedMessage: string | undefined;
+    if (topMsg && details && Object.keys(details).length > 0) {
+      const firstDetail = Object.entries(details)[0];
+      enrichedMessage = `${topMsg} — ${firstDetail[0]}: ${firstDetail[1]}`;
+    } else if (topMsg) {
+      enrichedMessage = topMsg;
+    }
+    if (enrichedMessage && error instanceof Error) {
+      (error as Error).message = enrichedMessage;
+    }
+
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 

@@ -1,5 +1,6 @@
 import { CheckCircle2, XCircle, Info, AlertTriangle, X } from 'lucide-react';
 import { useToastStore, type ToastKind } from '@/stores/toast.store';
+import { useTranslation } from 'react-i18next';
 
 const kindStyles: Record<ToastKind, { icon: typeof CheckCircle2; chip: string; iconClass: string }> = {
   success: {
@@ -25,24 +26,26 @@ const kindStyles: Record<ToastKind, { icon: typeof CheckCircle2; chip: string; i
 };
 
 export function ToastContainer() {
+  const { t } = useTranslation();
   const items = useToastStore((s) => s.items);
   const remove = useToastStore((s) => s.remove);
 
   return (
     <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(92vw,380px)] flex-col gap-2">
-      {items.map((t) => {
-        const { icon: Icon, chip, iconClass } = kindStyles[t.kind];
+      {items.map((tItem) => {
+        const { icon: Icon, chip, iconClass } = kindStyles[tItem.kind];
         return (
           <div
-            key={t.id}
+            key={tItem.id}
             className={`pointer-events-auto flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur ${chip} animate-[slideIn_.18s_ease-out]`}
             role="status"
           >
             <Icon className={`mt-0.5 h-5 w-5 flex-none ${iconClass}`} />
-            <p className="flex-1 text-sm leading-snug break-words">{t.message}</p>
+            <p className="flex-1 text-sm leading-snug break-words">{tItem.message}</p>
             <button
-              onClick={() => remove(t.id)}
-              aria-label="Dismiss"
+              onClick={() => remove(tItem.id)}
+              aria-label={t('toast.dismiss')}
+              title={t('toast.dismiss')}
               className="rounded p-0.5 text-current/60 opacity-70 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
             >
               <X className="h-4 w-4" />

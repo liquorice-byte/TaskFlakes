@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SubjectChip, StatusBadge, PriorityBadge, DueDate } from '@/components/ui/Badges';
+import { useTranslation } from 'react-i18next';
 
 function StatCard({
   label,
@@ -49,6 +50,7 @@ function StatCard({
 }
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const { data: userData } = useGetCurrentUser();
 
   const stats = useQuery<DashboardStats>({
@@ -73,8 +75,8 @@ export function DashboardPage() {
   });
 
   const greeting = userData?.name
-    ? `Welcome back, ${userData.name.split(' ')[0]}!`
-    : 'Welcome back!';
+    ? t('dashboard.welcomeName', { name: userData.name.split(' ')[0] })
+    : t('dashboard.welcomeBack');
 
   const s = stats.data || {
     total: 0,
@@ -90,9 +92,14 @@ export function DashboardPage() {
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{greeting}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900">{greeting}</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-violet-600 dark:text-violet-400 font-medium">TaskFlakes</span>
+          </div>
           <p className="mt-1 text-sm text-gray-500">
-            Here's your GTD progress for today.
+            {t('dashboard.gtdProgress')}
           </p>
         </div>
         <Link
@@ -100,7 +107,7 @@ export function DashboardPage() {
           className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-600 transition"
         >
           <Sparkles className="h-4 w-4" />
-          Open Assignments
+          {t('dashboard.openAssignments')}
           <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
@@ -108,39 +115,39 @@ export function DashboardPage() {
       {/* Stats grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
-          label="Total Tasks"
+          label={t('dashboard.totalTasks')}
           value={s.total}
           icon={ClipboardList}
           color="bg-blue-50 text-blue-600"
         />
         <StatCard
-          label="Completed"
+          label={t('dashboard.completed')}
           value={s.completed}
-          hint={`${s.doneRatePct}% completion rate`}
+          hint={`${s.doneRatePct}% ${t('dashboard.completionRate')}`}
           icon={CheckCircle2}
           color="bg-green-50 text-green-600"
         />
         <StatCard
-          label="In Progress"
+          label={t('dashboard.inProgress')}
           value={s.inProgress}
           icon={Clock}
           color="bg-yellow-50 text-yellow-600"
         />
         <StatCard
-          label="Not Started"
+          label={t('dashboard.notStarted')}
           value={s.notStarted}
           icon={ClipboardList}
           color="bg-gray-100 text-gray-600"
         />
         <StatCard
-          label="Overdue"
+          label={t('dashboard.overdue')}
           value={s.overdue}
-          hint={s.overdue > 0 ? 'Needs attention' : 'All caught up'}
+          hint={s.overdue > 0 ? t('dashboard.needsAttention') : t('dashboard.allCaughtUp')}
           icon={AlertCircle}
           color="bg-red-50 text-red-600"
         />
         <StatCard
-          label="High Priority"
+          label={t('dashboard.highPriority')}
           value={s.highPriority}
           icon={AlertTriangle}
           color="bg-rose-50 text-rose-600"
@@ -152,7 +159,7 @@ export function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-brand-500" />
-            Overall progress
+            {t('dashboard.overallProgress')}
           </h2>
           <span className="text-sm font-semibold text-gray-700 tabular-nums">
             {s.completed} / {s.total} ({s.doneRatePct}%)
@@ -170,12 +177,12 @@ export function DashboardPage() {
         {/* Recent updates */}
         <div className="card p-6 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Recently updated</h2>
+            <h2 className="text-lg font-semibold text-gray-900">{t('dashboard.recentlyUpdated')}</h2>
             <Link
               to="/assignments"
               className="text-sm font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
             >
-              View all <ChevronRight className="h-4 w-4" />
+              {t('dashboard.viewAll')} <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
           {recent.isLoading ? (
@@ -201,7 +208,10 @@ export function DashboardPage() {
                       <SubjectChip subject={a.subject} />
                       {a.children?.length > 0 && (
                         <span className="text-xs text-gray-400">
-                          {a.children.length} sub-task{a.children.length === 1 ? '' : 's'}
+                          {a.children.length}{' '}
+                          {a.children.length === 1
+                            ? t('dashboard.subtask')
+                            : t('dashboard.subtasks')}
                         </span>
                       )}
                     </div>
@@ -213,9 +223,9 @@ export function DashboardPage() {
           ) : (
             <div className="text-center py-12 text-gray-500">
               <ClipboardList className="mx-auto h-10 w-10 text-gray-300 mb-3" />
-              <p className="font-medium text-gray-700">No assignments yet</p>
+              <p className="font-medium text-gray-700">{t('dashboard.noAssignmentsYet')}</p>
               <p className="text-sm mt-1">
-                Go to <Link to="/assignments" className="text-brand-600 hover:underline">Assignments</Link> to create your first one.
+                {t('dashboard.goToAssignments')}
               </p>
             </div>
           )}
@@ -224,12 +234,12 @@ export function DashboardPage() {
         {/* Subjects overview */}
         <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Subjects</h2>
+            <h2 className="text-lg font-semibold text-gray-900">{t('dashboard.subjects')}</h2>
             <Link
               to="/subjects"
               className="text-sm font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1"
             >
-              Manage <ChevronRight className="h-4 w-4" />
+              {t('dashboard.manage')} <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
           {subjects.isLoading ? (
@@ -263,9 +273,9 @@ export function DashboardPage() {
           ) : (
             <div className="text-center py-10 text-gray-500">
               <p className="text-sm">
-                No subjects yet.{' '}
+                {t('dashboard.noSubjectsYet')}{' '}
                 <Link to="/subjects" className="text-brand-600 hover:underline">
-                  Add your first subject →
+                  {t('dashboard.addFirstSubject')}
                 </Link>
               </p>
             </div>

@@ -50,6 +50,18 @@ export const subjectIdParamSchema = z.object({
   id: z.string().min(1, 'Subject id is required'),
 });
 
+// -------------- Task Types (custom, user-owned) --------------
+export const createTaskTypeBodySchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(50, 'Name must be at most 50 characters'),
+  color: z.string().regex(HEX_COLOR, 'Invalid hex color').optional(),
+});
+export const updateTaskTypeBodySchema = createTaskTypeBodySchema.partial();
+export const taskTypeIdParamSchema = z.object({
+  id: z.string().min(1, 'Task type id is required'),
+});
+export type CreateTaskTypeInput = z.infer<typeof createTaskTypeBodySchema>;
+export type UpdateTaskTypeInput = z.infer<typeof updateTaskTypeBodySchema>;
+
 // -------------- Assignments --------------
 export const assignmentStatusEnum = z.enum(['NOT_STARTED', 'IN_PROGRESS', 'DONE']);
 export const assignmentPriorityEnum = z.enum(['LOW', 'MEDIUM', 'HIGH']);
@@ -75,6 +87,7 @@ export const createAssignmentBodySchema = z.object({
   dueDate: isoDateOrDateTime.optional().or(z.null()).optional(),
   subjectId: z.string().optional().or(z.null()).optional(),
   parentId: z.string().optional().or(z.null()).optional(),
+  taskTypeId: z.string().optional().or(z.null()).optional(),
 });
 
 export const updateAssignmentBodySchema = createAssignmentBodySchema.partial();
@@ -88,12 +101,13 @@ export const listAssignmentsQuerySchema = z.object({
   subjectId: z.string().optional(),
   priority: assignmentPriorityEnum.optional(),
   parentId: z.string().optional(),
+  taskTypeId: z.string().optional(),
   topLevelOnly: z
     .union([z.enum(['true', 'false', '1', '0']), z.boolean()])
     .optional()
     .transform((v) => (typeof v === 'boolean' ? v : v === 'true' || v === '1')),
   search: z.string().max(100).optional(),
-  sortBy: z.enum(['dueDate', 'priority', 'status', 'title', 'createdAt', 'updatedAt']).default('updatedAt'),
+  sortBy: z.enum(['dueDate', 'priority', 'status', 'title', 'type', 'subject', 'createdAt', 'updatedAt']).default('updatedAt'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -108,6 +122,13 @@ export const setStatusBodySchema = z.object({
 export const createSubtaskBodySchema = createAssignmentBodySchema.omit({ parentId: true }).extend({
   title: z.string().trim().min(1, 'Title is required').max(200),
 });
+
+// -------------- Assignment status counts (global, not page-capped) --------------
+export const assignmentCountsQuerySchema = z.object({
+  subjectId: z.string().uuid().optional(),
+  topLevelOnly: z.coerce.boolean().optional(),
+});
+export type AssignmentCountsQuery = z.infer<typeof assignmentCountsQuerySchema>;
 
 // -------------- Settings --------------
 export const updateSettingsBodySchema = z.object({
@@ -140,6 +161,8 @@ const importAssignmentRow = z.object({
   dueDate: z.string().optional().nullable(),
   completedAt: z.string().optional().nullable(),
   subjectName: z.string().trim().optional().nullable(),
+  // 父项标题：导入时按标题解析父子关系（exportService.apply 第二遍连接 parentId）
+  parentTitle: z.string().trim().optional().nullable(),
   subtasks: z.array(z.unknown()).optional(),
 });
 export const importBodySchema = z.object({

@@ -39,7 +39,7 @@ function startServer() {
   const app = createApp();
 
   app.listen(config.port, () => {
-    console.log(`\n🚀 Assignment Tracker API running on port ${config.port}`);
+    console.log(`\n🚀 TaskFlakes API running on port ${config.port}`);
     console.log(`   Environment: ${config.env}`);
     console.log(`   CORS: ${config.cors.origin}`);
     console.log(`   Health check: http://localhost:${config.port}/api/health\n`);

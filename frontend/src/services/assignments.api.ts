@@ -24,6 +24,19 @@ export interface SubjectResponse extends SubjectSummary {
   _count?: { assignments: number };
 }
 
+// ===== 自定义作业类型（用户拥有：名称 + 颜色） =====
+export interface TaskTypeSummary {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface TaskTypeResponse extends TaskTypeSummary {
+  createdAt: string;
+  updatedAt: string;
+  _count?: { assignments: number };
+}
+
 export interface AssignmentBase {
   id: string;
   title: string;
@@ -35,6 +48,7 @@ export interface AssignmentBase {
   completedAt: string | null;
   parentId: string | null;
   subjectId: string | null;
+  taskTypeId: string | null;
   userId: string;
   createdAt: string;
   updatedAt: string;
@@ -42,6 +56,7 @@ export interface AssignmentBase {
 
 export interface AssignmentResponse extends AssignmentBase {
   subject: SubjectSummary | null;
+  taskType: TaskTypeSummary | null;
   parent?: Pick<AssignmentBase, 'id' | 'title' | 'status'> | null;
   children: AssignmentChild[];
   _count?: { children: number };
@@ -49,6 +64,7 @@ export interface AssignmentResponse extends AssignmentBase {
 
 export interface AssignmentChild extends AssignmentBase {
   subject: SubjectSummary | null;
+  taskType: TaskTypeSummary | null;
 }
 
 // ===== Payloads =====
@@ -67,9 +83,10 @@ export interface ListAssignmentsQuery {
   subjectId?: string;
   priority?: Priority;
   parentId?: string;
+  taskTypeId?: string;
   topLevelOnly?: boolean;
   search?: string;
-  sortBy?: 'dueDate' | 'priority' | 'status' | 'title' | 'createdAt' | 'updatedAt';
+  sortBy?: 'dueDate' | 'priority' | 'status' | 'title' | 'type' | 'subject' | 'createdAt' | 'updatedAt';
   sortDir?: 'asc' | 'desc';
   page?: number;
   limit?: number;
@@ -89,6 +106,7 @@ export interface CreateAssignmentPayload {
   dueDate?: string | null;
   subjectId?: string | null;
   parentId?: string | null;
+  taskTypeId?: string | null;
 }
 
 export interface UpdateAssignmentPayload extends Partial<Omit<CreateAssignmentPayload, 'title'>> {
@@ -137,6 +155,41 @@ export async function deleteSubject(id: string): Promise<{ id: string; deleted: 
   });
 }
 
+// ============== Task Types (custom) ==============
+export interface CreateTaskTypePayload {
+  name: string;
+  color?: string;
+}
+export interface UpdateTaskTypePayload {
+  name?: string;
+  color?: string;
+}
+
+export async function listTaskTypes(): Promise<TaskTypeResponse[]> {
+  const { data } = await apiClient.get('/api/task-types');
+  return handleResponse<TaskTypeResponse[]>({ data: wrap<TaskTypeResponse[]>(data) });
+}
+
+export async function createTaskType(payload: CreateTaskTypePayload): Promise<TaskTypeResponse> {
+  const { data } = await apiClient.post('/api/task-types', payload);
+  return handleResponse<TaskTypeResponse>({ data: wrap<TaskTypeResponse>(data) });
+}
+
+export async function updateTaskType(
+  id: string,
+  payload: UpdateTaskTypePayload
+): Promise<TaskTypeResponse> {
+  const { data } = await apiClient.patch(`/api/task-types/${id}`, payload);
+  return handleResponse<TaskTypeResponse>({ data: wrap<TaskTypeResponse>(data) });
+}
+
+export async function deleteTaskType(id: string): Promise<{ id: string; deleted: true }> {
+  const { data } = await apiClient.delete(`/api/task-types/${id}`);
+  return handleResponse<{ id: string; deleted: true }>({
+    data: wrap<{ id: string; deleted: true }>(data),
+  });
+}
+
 // ============== Assignments ==============
 export async function listAssignments(
   query: ListAssignmentsQuery = {}
@@ -150,6 +203,7 @@ export async function listAssignments(
   append('subjectId', query.subjectId);
   append('priority', query.priority);
   append('parentId', query.parentId);
+  append('taskTypeId', query.taskTypeId);
   append('topLevelOnly', query.topLevelOnly ? 'true' : undefined);
   append('search', query.search);
   append('sortBy', query.sortBy);
@@ -168,6 +222,31 @@ export async function listAssignments(
     data: ar.data || [],
     meta: { page: ar.meta?.page ?? 1, total: ar.meta?.total ?? 0, limit: ar.meta?.limit ?? 50 },
   };
+}
+
+export interface AssignmentCounts {
+  total: number;
+  notStarted: number;
+  inProgress: number;
+  done: number;
+}
+
+/** 全局状态计数（不受分页限制），用于筛选 chip */
+export async function fetchAssignmentCounts(
+  subjectId?: string
+): Promise<AssignmentCounts> {
+  const params = new URLSearchParams();
+  if (subjectId) params.append('subjectId', subjectId);
+  params.append('topLevelOnly', 'true');
+  const qs = params.toString();
+  const { data } = await apiClient.get(`/api/assignments/counts${qs ? `?${qs}` : ''}`);
+  const ar = wrap<AssignmentCounts>(data);
+  if (!ar.success) {
+    throw new Error(ar.error?.message || 'Request failed');
+  }
+  return (
+    ar.data || { total: 0, notStarted: 0, inProgress: 0, done: 0 }
+  );
 }
 
 export async function getAssignment(id: string): Promise<AssignmentResponse> {

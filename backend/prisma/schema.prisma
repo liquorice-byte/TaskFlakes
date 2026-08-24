@@ -18,6 +18,7 @@ model User {
 
   assignments   Assignment[]
   subjects      Subject[]
+  taskTypes     TaskType[]
   refreshTokens RefreshToken[]
   settings      UserSettings?
 }
@@ -79,6 +80,22 @@ model Subject {
   @@index([userId])
 }
 
+model TaskType {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("#6B7280")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@map("task_types")
+}
+
 model Assignment {
   id          String         @id @default(cuid())
   title       String
@@ -96,6 +113,9 @@ model Assignment {
   subjectId   String?        @map("subject_id")
   subject     Subject?       @relation(fields: [subjectId], references: [id], onDelete: SetNull)
 
+  taskTypeId  String?        @map("task_type_id")
+  taskType    TaskType?      @relation(fields: [taskTypeId], references: [id], onDelete: SetNull)
+
   userId      String         @map("user_id")
   user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -107,6 +127,7 @@ model Assignment {
   @@index([dueDate])
   @@index([priority])
   @@index([subjectId])
+  @@index([taskTypeId])
 }
 
 enum Status {

@@ -14,7 +14,7 @@ import { success, created, unauthorized, badRequest, serverError, ok } from '../
 import type { AuthenticatedRequest } from '../types/index.js';
 import type { DeleteMeInput, UpdateMeInput } from '../validations/schemas.js';
 import { CONSTANTS } from '../config/constants.js';
-import { config } from '../config/index.js';
+import { refreshCookieOptions } from '../config/index.js';
 
 const router = Router();
 
@@ -31,13 +31,7 @@ router.post(
         name: body.name,
       });
 
-      res.cookie(CONSTANTS.REFRESH_COOKIE_NAME, result.refreshToken, {
-        httpOnly: true,
-        secure: config.isProduction,
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        path: '/',
-      });
+      res.cookie(CONSTANTS.REFRESH_COOKIE_NAME, result.refreshToken, refreshCookieOptions);
 
       return created(res, {
         user: result.user,
@@ -65,13 +59,7 @@ router.post(
         password: body.password,
       });
 
-      res.cookie(CONSTANTS.REFRESH_COOKIE_NAME, result.refreshToken, {
-        httpOnly: true,
-        secure: config.isProduction,
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        path: '/',
-      });
+      res.cookie(CONSTANTS.REFRESH_COOKIE_NAME, result.refreshToken, refreshCookieOptions);
 
       return success(res, {
         user: result.user,
@@ -89,16 +77,15 @@ router.post(
 
 router.post('/refresh', validate(refreshTokenBodySchema), async (req, res) => {
   try {
-    const { body } = req;
-    const result = await authService.refresh(body.refreshToken);
+    // Prefer the httpOnly cookie (browser flow); fall back to the body for non-browser API clients.
+    const cookieToken = req.cookies?.[CONSTANTS.REFRESH_COOKIE_NAME] as string | undefined;
+    const token = cookieToken || req.body.refreshToken;
+    if (!token) {
+      return unauthorized(res, 'Invalid or expired refresh token');
+    }
+    const result = await authService.refresh(token);
 
-    res.cookie(CONSTANTS.REFRESH_COOKIE_NAME, result.refreshToken, {
-      httpOnly: true,
-      secure: config.isProduction,
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/',
-    });
+    res.cookie(CONSTANTS.REFRESH_COOKIE_NAME, result.refreshToken, refreshCookieOptions);
 
     return success(res, {
       accessToken: result.accessToken,
@@ -113,12 +100,7 @@ router.post('/logout', authenticate, async (req, res) => {
     const { user } = req as unknown as AuthenticatedRequest;
     await authService.logout(user.id);
 
-    res.clearCookie(CONSTANTS.REFRESH_COOKIE_NAME, {
-      httpOnly: true,
-      secure: config.isProduction,
-      sameSite: 'strict',
-      path: '/',
-    });
+    res.clearCookie(CONSTANTS.REFRESH_COOKIE_NAME, refreshCookieOptions);
 
     return success(res, null);
   } catch {
@@ -159,12 +141,7 @@ router.delete('/me', authenticate, validateBody(deleteMeBodySchema), async (req,
       return badRequest(res, 'Confirmation email does not match current account');
     }
     await authService.deleteAccount(user.id);
-    res.clearCookie(CONSTANTS.REFRESH_COOKIE_NAME, {
-      httpOnly: true,
-      secure: config.isProduction,
-      sameSite: 'strict',
-      path: '/',
-    });
+    res.clearCookie(CONSTANTS.REFRESH_COOKIE_NAME, refreshCookieOptions);
     return res.status(204).send();
   } catch (err) {
     const message = (err as Error).message;

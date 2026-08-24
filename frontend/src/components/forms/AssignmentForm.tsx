@@ -3,16 +3,19 @@ import type {
   CreateAssignmentPayload,
   UpdateAssignmentPayload,
   SubjectResponse,
+  TaskTypeResponse,
   Status,
   Priority,
   AssignmentType,
   AssignmentResponse,
 } from '@/services/assignments.api';
-import { statusMap, priorityMap, typeMap } from '@/components/ui/Badges';
+import { useStatusMap, usePriorityMap, useTypeMap } from '@/components/ui/Badges';
+import { useTranslation } from 'react-i18next';
 
 interface AssignmentFormProps {
   initial?: AssignmentResponse | null;
   subjects: SubjectResponse[];
+  taskTypes?: TaskTypeResponse[];
   defaultValues?: Partial<CreateAssignmentPayload>;
   onSubmit: (values: CreateAssignmentPayload | UpdateAssignmentPayload) => Promise<void> | void;
   submitting?: boolean;
@@ -34,9 +37,31 @@ const allStatuses: Status[] = ['NOT_STARTED', 'IN_PROGRESS', 'DONE'];
 const allPriorities: Priority[] = ['LOW', 'MEDIUM', 'HIGH'];
 const allTypes: AssignmentType[] = ['WRITTEN', 'COMPOSITE', 'WRITING', 'WATCHING', 'PREVIEW', 'ORAL'];
 
+const statusBadgeKey: Record<Status, string> = {
+  NOT_STARTED: 'badges.notStarted',
+  IN_PROGRESS: 'badges.inProgress',
+  DONE: 'badges.done',
+};
+
+const priorityBadgeKey: Record<Priority, string> = {
+  LOW: 'badges.low',
+  MEDIUM: 'badges.medium',
+  HIGH: 'badges.high',
+};
+
+const typeBadgeKey: Record<AssignmentType, string> = {
+  WRITTEN: 'badges.written',
+  COMPOSITE: 'badges.composite',
+  WRITING: 'badges.writing',
+  WATCHING: 'badges.watching',
+  PREVIEW: 'badges.preview',
+  ORAL: 'badges.oral',
+};
+
 export function AssignmentForm({
   initial,
   subjects,
+  taskTypes,
   defaultValues,
   onSubmit,
   submitting,
@@ -44,6 +69,10 @@ export function AssignmentForm({
   onCancel,
   isSubtask,
 }: AssignmentFormProps) {
+  const { t } = useTranslation();
+  const statusMap = useStatusMap();
+  const priorityMap = usePriorityMap();
+  const typeMap = useTypeMap();
   const [title, setTitle] = useState(initial?.title || defaultValues?.title || '');
   const [description, setDescription] = useState(
     initial?.description ?? defaultValues?.description ?? ''
@@ -65,6 +94,9 @@ export function AssignmentForm({
   const [subjectId, setSubjectId] = useState<string>(
     (initial?.subjectId || defaultValues?.subjectId || '') as string
   );
+  const [taskTypeId, setTaskTypeId] = useState<string>(
+    (initial?.taskTypeId || defaultValues?.taskTypeId || '') as string
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -76,15 +108,16 @@ export function AssignmentForm({
       setType(initial.type);
       setDueDate(formatDateForInput(initial.dueDate));
       setSubjectId(initial.subjectId || '');
+      setTaskTypeId(initial.taskTypeId || '');
     }
   }, [initial]);
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!title.trim()) e.title = 'Title is required';
-    else if (title.trim().length > 200) e.title = 'Must be 200 characters or fewer';
+    if (!title.trim()) e.title = t('common.required');
+    else if (title.trim().length > 200) e.title = t('assignments.mustBe200CharsOrLess');
     if (description && description.length > 5000)
-      e.description = 'Must be 5000 characters or fewer';
+      e.description = t('assignments.mustBe5000CharsOrLess');
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -101,6 +134,7 @@ export function AssignmentForm({
         type,
         dueDate: dueDate ? new Date(dueDate).toISOString() : null,
         subjectId: subjectId || null,
+        taskTypeId: taskTypeId || null,
       };
       if (defaultValues?.parentId) basePayload.parentId = defaultValues.parentId;
 
@@ -116,6 +150,8 @@ export function AssignmentForm({
           payload.dueDate = dueDate ? new Date(dueDate).toISOString() : null;
         if ((subjectId || '') !== (initial.subjectId || ''))
           payload.subjectId = subjectId || null;
+        if ((taskTypeId || '') !== (initial.taskTypeId || ''))
+          payload.taskTypeId = taskTypeId || null;
         await onSubmit(payload);
       } else {
         await onSubmit(basePayload);
@@ -130,13 +166,13 @@ export function AssignmentForm({
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Title <span className="text-red-500">*</span>
+          {t('common.title')} <span className="text-red-500">*</span>
         </label>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder={isSubtask ? 'Sub-task title' : 'Assignment title (e.g. 抄写7A古诗文)'}
+          placeholder={isSubtask ? t('assignments.subtaskTitlePlaceholder') : t('assignments.assignmentTitlePlaceholder')}
           className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 ${
             errors.title ? 'border-red-400' : 'border-gray-300'
           }`}
@@ -145,12 +181,12 @@ export function AssignmentForm({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.description')}</label>
         <textarea
           rows={3}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Optional notes, page references, etc."
+          placeholder={t('assignments.notesPlaceholder')}
           className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 resize-y ${
             errors.description ? 'border-red-400' : 'border-gray-300'
           }`}
@@ -162,13 +198,13 @@ export function AssignmentForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Subject</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.subject')}</label>
           <select
             value={subjectId}
             onChange={(e) => setSubjectId(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30"
           >
-            <option value="">— No subject —</option>
+            <option value="">— {t('common.noSubject')} —</option>
             {subjects.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -177,7 +213,7 @@ export function AssignmentForm({
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Due date</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.dueDate')}</label>
           <input
             type="date"
             value={dueDate}
@@ -188,7 +224,7 @@ export function AssignmentForm({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.status')}</label>
         <div className="grid grid-cols-3 gap-2">
           {allStatuses.map((s) => {
             const meta = statusMap[s];
@@ -205,7 +241,7 @@ export function AssignmentForm({
                 }`}
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-                {meta.label}
+                {t(statusBadgeKey[s])}
               </button>
             );
           })}
@@ -213,7 +249,7 @@ export function AssignmentForm({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.priority')}</label>
         <div className="grid grid-cols-3 gap-2">
           {allPriorities.map((p) => {
             const meta = priorityMap[p];
@@ -229,7 +265,7 @@ export function AssignmentForm({
                     : 'bg-white text-gray-500 ring-gray-200 hover:bg-gray-50'
                 }`}
               >
-                {meta.label}
+                {t(priorityBadgeKey[p])}
               </button>
             );
           })}
@@ -237,28 +273,48 @@ export function AssignmentForm({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Type</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.type')}</label>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {allTypes.map((t) => {
-            const meta = typeMap[t];
-            const active = type === t;
+          {allTypes.map((tVal) => {
+            const meta = typeMap[tVal];
+            const active = type === tVal;
             return (
               <button
                 type="button"
-                key={t}
-                onClick={() => setType(t)}
+                key={tVal}
+                onClick={() => setType(tVal)}
                 className={`rounded-md px-2.5 py-1.5 text-xs font-medium ring-1 ring-inset transition ${
                   active
                     ? `${meta.className} ring-2 ring-offset-1 ring-gray-900/10`
                     : 'bg-white text-gray-500 ring-gray-200 hover:bg-gray-50'
                 }`}
               >
-                {meta.label}
+                {t(typeBadgeKey[tVal])}
               </button>
             );
           })}
         </div>
       </div>
+
+      {taskTypes && taskTypes.length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            {t('types.customTypeOptional')}
+          </label>
+          <select
+            value={taskTypeId}
+            onChange={(e) => setTaskTypeId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+          >
+            <option value="">— {t('types.noCustomType')} —</option>
+            {taskTypes.map((tt) => (
+              <option key={tt.id} value={tt.id}>
+                {tt.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {serverError && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
@@ -274,11 +330,11 @@ export function AssignmentForm({
             className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 transition disabled:opacity-50"
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         )}
         <button type="submit" className="btn-primary" disabled={submitting}>
-          {submitting ? 'Saving...' : initial ? 'Update assignment' : isSubtask ? 'Add sub-task' : 'Create assignment'}
+          {submitting ? t('common.saving') : initial ? t('common.updateAssignment') : isSubtask ? t('assignments.addSubtask') : t('assignments.newAssignment')}
         </button>
       </div>
     </form>

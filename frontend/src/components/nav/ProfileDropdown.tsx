@@ -5,8 +5,10 @@ import { useGetCurrentUser, useLogout } from '@/hooks/useAuth';
 import { useThemeStore } from '@/stores/theme.store';
 import { toast } from '@/stores/toast.store';
 import type { Theme } from '@/services/assignments.api';
+import { useTranslation } from 'react-i18next';
 
 export function ProfileDropdown() {
+  const { t } = useTranslation();
   const { data: user } = useGetCurrentUser();
   const logout = useLogout();
   const nav = useNavigate();
@@ -42,17 +44,17 @@ export function ProfileDropdown() {
   async function onLogout() {
     try {
       await logout.mutateAsync();
-      toast.info('Signed out');
+      toast.info(t('profile.signedOut'));
       nav('/login', { replace: true });
     } catch {
-      toast.error('Failed to sign out');
+      toast.error(t('profile.failedToSignOut'));
     }
   }
 
   const themes: Array<{ value: Theme; Icon: typeof Sun; label: string }> = [
-    { value: 'LIGHT', Icon: Sun, label: 'Light' },
-    { value: 'DARK', Icon: Moon, label: 'Dark' },
-    { value: 'SYSTEM', Icon: Monitor, label: 'System' },
+    { value: 'LIGHT', Icon: Sun, label: t('settings.light') },
+    { value: 'DARK', Icon: Moon, label: t('settings.dark') },
+    { value: 'SYSTEM', Icon: Monitor, label: t('settings.followSystem') },
   ];
 
   return (
@@ -72,7 +74,7 @@ export function ProfileDropdown() {
           )}
         </span>
         <span className="hidden min-w-0 max-w-[160px] truncate text-sm font-medium text-gray-700 dark:text-gray-200 md:block">
-          {user?.name || user?.email || 'Account'}
+          {user?.name || user?.email || t('profile.account')}
         </span>
         <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-400" />
       </button>
@@ -84,14 +86,14 @@ export function ProfileDropdown() {
         >
           <div className="border-b border-gray-100 px-3 py-2 dark:border-white/5">
             <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {user?.name || 'Unnamed user'}
+              {user?.name || t('profile.unnamedUser')}
             </p>
             <p className="truncate text-xs text-gray-500 dark:text-gray-400">{user?.email}</p>
           </div>
 
           <div className="mt-1">
             <p className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">
-              Theme
+              {t('profile.theme')}
             </p>
             <div className="grid grid-cols-3 gap-1">
               {themes.map(({ value, Icon, label }) => {
@@ -121,7 +123,7 @@ export function ProfileDropdown() {
               className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/10"
             >
               <SettingsIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-              Settings
+              {t('nav.settings')}
             </Link>
             <button
               type="button"
@@ -129,7 +131,7 @@ export function ProfileDropdown() {
               className="flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
             >
               <LogOut className="h-4 w-4" />
-              Sign out
+              {t('nav.logout')}
             </button>
           </div>
         </div>

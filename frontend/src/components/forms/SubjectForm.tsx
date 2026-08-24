@@ -4,6 +4,7 @@ import type {
   SubjectResponse,
   UpdateSubjectPayload,
 } from '@/services/assignments.api';
+import { useTranslation } from 'react-i18next';
 
 interface SubjectFormProps {
   initial?: SubjectResponse | null;
@@ -38,6 +39,7 @@ export function SubjectForm({
   serverError,
   onCancel,
 }: SubjectFormProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState(initial?.name || '');
   const [color, setColor] = useState(initial?.color || '#6B7280');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -51,8 +53,8 @@ export function SubjectForm({
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!name.trim()) e.name = 'Name is required';
-    else if (name.trim().length > 50) e.name = 'Must be 50 characters or fewer';
+    if (!name.trim()) e.name = t('common.required');
+    else if (name.trim().length > 50) e.name = t('subjects.mustBe50CharsOrLess');
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -79,12 +81,12 @@ export function SubjectForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.name')}</label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Chinese, Maths, English"
+          placeholder={t('subjects.placeholderSubjects')}
           className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 ${
             errors.name ? 'border-red-400 focus:border-red-500' : 'border-gray-300'
           }`}
@@ -93,7 +95,7 @@ export function SubjectForm({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Color</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.color')}</label>
         <div className="grid grid-cols-8 gap-2 mb-3">
           {presetColors.map((c) => (
             <button
@@ -104,7 +106,7 @@ export function SubjectForm({
                 color.toLowerCase() === c.toLowerCase() ? 'ring-gray-900' : 'ring-transparent'
               }`}
               style={{ backgroundColor: c }}
-              aria-label={`Select ${c}`}
+              aria-label={t('subjects.selectColor', { color: c })}
             />
           ))}
         </div>
@@ -125,13 +127,13 @@ export function SubjectForm({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Preview</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('common.preview')}</label>
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3">
           <span
             className="h-3 w-3 rounded-full"
             style={{ backgroundColor: color }}
           />
-          <span className="text-sm font-medium text-gray-800">{name || 'Subject name'}</span>
+          <span className="text-sm font-medium text-gray-800">{name || t('subjects.unnamed')}</span>
         </div>
       </div>
 
@@ -149,7 +151,7 @@ export function SubjectForm({
             className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 transition"
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         )}
         <button
@@ -157,7 +159,7 @@ export function SubjectForm({
           className="btn-primary"
           disabled={submitting}
         >
-          {submitting ? 'Saving...' : initial ? 'Update subject' : 'Create subject'}
+          {submitting ? t('common.saving') : initial ? t('common.updateSubject') : t('subjects.newSubject')}
         </button>
       </div>
     </form>

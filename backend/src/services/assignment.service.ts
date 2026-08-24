@@ -4,10 +4,19 @@ import type {
   UpdateAssignmentInput,
   ListAssignmentsQuery,
 } from '../validations/schemas.js';
-import type { Status, Priority, AssignmentType } from '@prisma/client';
+import type { Status, Priority, AssignmentType, Prisma } from '@prisma/client';
 
 const PRIORITY_WEIGHT: Record<Priority, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
 const STATUS_ORDER: Record<Status, number> = { IN_PROGRESS: 0, NOT_STARTED: 1, DONE: 2 };
+// 作业类型排序权重（按 GTD 语义分组：写作类 → 阅读/预览类 → 观看类 → 综合）
+const TYPE_ORDER: Record<AssignmentType, number> = {
+  WRITING: 0,
+  WRITTEN: 1,
+  ORAL: 2,
+  PREVIEW: 3,
+  WATCHING: 4,
+  COMPOSITE: 5,
+};
 
 interface AssignmentWithRelations {
   id: string;
@@ -43,6 +52,16 @@ async function assertSubjectBelongs(userId: string, subjectId: string | null | u
   }
 }
 
+async function assertTaskTypeBelongs(userId: string, taskTypeId: string | null | undefined) {
+  if (!taskTypeId) return;
+  const exists = await prisma.taskType.count({ where: { id: taskTypeId, userId } });
+  if (exists === 0) {
+    const e = new Error('Task type not found');
+    (e as Error & { code?: string }).code = 'TASK_TYPE_NOT_FOUND';
+    throw e;
+  }
+}
+
 async function assertParentBelongs(userId: string, parentId: string | null | undefined) {
   if (!parentId) return;
   const parent = await prisma.assignment.findUnique({
@@ -69,6 +88,7 @@ function buildListQuery(userId: string, q: ListAssignmentsQuery) {
   if (q.status) where.status = q.status;
   if (q.priority) where.priority = q.priority;
   if (q.subjectId) where.subjectId = q.subjectId;
+  if (q.taskTypeId) where.taskTypeId = q.taskTypeId;
   if (q.parentId) where.parentId = q.parentId;
   else if (q.topLevelOnly) where.parentId = null;
 
@@ -90,13 +110,18 @@ export const assignmentService = {
     const sortField = query.sortBy;
     const dir = query.sortDir;
 
-    const orderBy: Array<Record<string, string>> = [];
+    const orderBy: Prisma.AssignmentOrderByWithRelationInput[] = [];
 
     if (sortField === 'priority') {
       // priority 需要按权重排 (HIGH > MEDIUM > LOW)
       // Prisma 没有原生的枚举排序值，因此用手动排序：先查出后在内存排序
     } else if (sortField === 'status') {
       // 同上
+    } else if (sortField === 'type') {
+      // type 同样按语义权重排序（见 TYPE_ORDER）
+    } else if (sortField === 'subject') {
+      // 按学科名全局分组（关系排序，DB 级，保证跨页一致）
+      orderBy.push({ subject: { name: dir } });
     } else {
       orderBy.push({ [sortField]: dir });
     }
@@ -112,9 +137,13 @@ export const assignmentService = {
         orderBy,
         include: {
           subject: { select: { id: true, name: true, color: true } },
+          taskType: { select: { id: true, name: true, color: true } },
           children: {
             orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
-            include: { subject: { select: { id: true, name: true, color: true } } },
+            include: {
+              subject: { select: { id: true, name: true, color: true } },
+              taskType: { select: { id: true, name: true, color: true } },
+            },
           },
           _count: { select: { children: true } },
         },
@@ -133,9 +162,42 @@ export const assignmentService = {
         const diff = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
         return dir === 'asc' ? diff : -diff;
       });
+    } else if (sortField === 'type') {
+      items = [...items].sort((a, b) => {
+        const diff = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
+        return dir === 'asc' ? diff : -diff;
+      });
     }
 
     return { data: items, meta: { page: query.page, total, limit: query.limit } };
+  },
+
+  // 全局状态计数（不受分页 50 条限制），用于筛选 chip 显示真实分布
+  async counts(userId: string, query: { subjectId?: string; topLevelOnly?: boolean }) {
+    const where: { userId: string; subjectId?: string; parentId?: null } = { userId };
+    if (query.subjectId) where.subjectId = query.subjectId;
+    if (query.topLevelOnly) where.parentId = null;
+
+    const groups = await prisma.assignment.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+      where,
+    });
+
+    let notStarted = 0;
+    let inProgress = 0;
+    let done = 0;
+    for (const g of groups) {
+      if (g.status === 'NOT_STARTED') notStarted = g._count._all;
+      else if (g.status === 'IN_PROGRESS') inProgress = g._count._all;
+      else if (g.status === 'DONE') done = g._count._all;
+    }
+    return {
+      total: notStarted + inProgress + done,
+      notStarted,
+      inProgress,
+      done,
+    };
   },
 
   async getById(userId: string, id: string) {
@@ -143,10 +205,14 @@ export const assignmentService = {
       where: { id, userId },
       include: {
         subject: { select: { id: true, name: true, color: true } },
+        taskType: { select: { id: true, name: true, color: true } },
         parent: { select: { id: true, title: true, status: true } },
         children: {
           orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
-          include: { subject: { select: { id: true, name: true, color: true } } },
+          include: {
+            subject: { select: { id: true, name: true, color: true } },
+            taskType: { select: { id: true, name: true, color: true } },
+          },
         },
       },
     });
@@ -155,6 +221,7 @@ export const assignmentService = {
   async create(userId: string, input: CreateAssignmentInput) {
     await Promise.all([
       assertSubjectBelongs(userId, input.subjectId ?? null),
+      assertTaskTypeBelongs(userId, input.taskTypeId ?? null),
       assertParentBelongs(userId, input.parentId ?? null),
     ]);
 
@@ -170,6 +237,7 @@ export const assignmentService = {
       dueDate,
       subjectId: input.subjectId ?? null,
       parentId: input.parentId ?? null,
+      taskTypeId: input.taskTypeId ?? null,
     };
 
     if (data.status === 'DONE' && !data.completedAt) {
@@ -180,8 +248,12 @@ export const assignmentService = {
       data,
       include: {
         subject: { select: { id: true, name: true, color: true } },
+        taskType: { select: { id: true, name: true, color: true } },
         children: {
-          include: { subject: { select: { id: true, name: true, color: true } } },
+          include: {
+            subject: { select: { id: true, name: true, color: true } },
+            taskType: { select: { id: true, name: true, color: true } },
+          },
         },
       },
     });
@@ -193,6 +265,7 @@ export const assignmentService = {
 
     await Promise.all([
       assertSubjectBelongs(userId, input.subjectId ?? null),
+      assertTaskTypeBelongs(userId, input.taskTypeId ?? null),
       assertParentBelongs(userId, input.parentId ?? null),
     ]);
 
@@ -228,14 +301,21 @@ export const assignmentService = {
     if (Object.prototype.hasOwnProperty.call(input, 'parentId')) {
       data.parentId = input.parentId ?? null;
     }
+    if (Object.prototype.hasOwnProperty.call(input, 'taskTypeId')) {
+      data.taskTypeId = input.taskTypeId ?? null;
+    }
 
     return prisma.assignment.update({
       where: { id, userId },
       data,
       include: {
         subject: { select: { id: true, name: true, color: true } },
+        taskType: { select: { id: true, name: true, color: true } },
         children: {
-          include: { subject: { select: { id: true, name: true, color: true } } },
+          include: {
+            subject: { select: { id: true, name: true, color: true } },
+            taskType: { select: { id: true, name: true, color: true } },
+          },
         },
       },
     });

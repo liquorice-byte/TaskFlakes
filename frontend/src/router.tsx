@@ -5,6 +5,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { AssignmentsPage } from './pages/AssignmentsPage';
 import { SubjectsPage } from './pages/SubjectsPage';
+import { TypesPage } from './pages/TypesPage';
 import { StatsPage } from './pages/StatsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -35,6 +36,10 @@ export const router = createBrowserRouter([
       {
         path: '/subjects',
         element: <SubjectsPage />,
+      },
+      {
+        path: '/types',
+        element: <TypesPage />,
       },
       {
         path: '/stats',

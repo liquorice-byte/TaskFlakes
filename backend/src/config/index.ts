@@ -1,3 +1,5 @@
+import type { CookieOptions } from 'express';
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '4000', 10),
@@ -22,3 +24,18 @@ export const config = {
 } as const;
 
 export type Config = typeof config;
+
+/**
+ * Refresh-token cookie options.
+ * In production the frontend and API live on different subdomains (cross-site),
+ * so we need `sameSite: 'none'` + `secure: true` for the cookie to be sent.
+ * In development the Vite proxy makes the request same-origin, so `lax` is enough.
+ */
+export const refreshCookieOptions: CookieOptions = {
+  httpOnly: true,
+  secure: config.isProduction,
+  sameSite: config.isProduction ? 'none' : 'lax',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  path: '/',
+};
+

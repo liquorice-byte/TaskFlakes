@@ -11,8 +11,11 @@ import type { SubjectResponse } from '@/services/assignments.api';
 import { Modal } from '@/components/ui/Modal';
 import { SubjectForm } from '@/components/forms/SubjectForm';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { toast } from '@/stores/toast.store';
 
 export function SubjectsPage() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<SubjectResponse | null>(null);
@@ -33,9 +36,10 @@ export function SubjectsPage() {
       setErrorMsg(null);
       void queryClient.invalidateQueries({ queryKey: ['subjects'] });
       void queryClient.invalidateQueries({ queryKey: ['subjects-overview'] });
+      toast.success(t('subjects.subjectCreated'));
     },
     onError: (err) => {
-      setErrorMsg((err as Error).message || 'Failed to create subject');
+      setErrorMsg((err as Error).message || t('common.somethingWentWrong'));
     },
   });
 
@@ -47,9 +51,10 @@ export function SubjectsPage() {
       setEditing(null);
       setErrorMsg(null);
       void queryClient.invalidateQueries({ queryKey: ['subjects'] });
+      toast.success(t('subjects.subjectUpdated'));
     },
     onError: (err) => {
-      setErrorMsg((err as Error).message || 'Failed to update subject');
+      setErrorMsg((err as Error).message || t('common.somethingWentWrong'));
     },
   });
 
@@ -61,6 +66,7 @@ export function SubjectsPage() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       void queryClient.invalidateQueries({ queryKey: ['dashboard-recent'] });
       void queryClient.invalidateQueries({ queryKey: ['assignments'] });
+      toast.success(t('subjects.subjectDeleted'));
     },
   });
 
@@ -72,10 +78,10 @@ export function SubjectsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <BookOpen className="h-7 w-7 text-brand-500" />
-            Subjects
+            {t('subjects.title_')}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Organize your work into subjects like Chinese, Maths, or English.
+            {t('subjects.organize')}
           </p>
         </div>
         <button
@@ -87,7 +93,7 @@ export function SubjectsPage() {
           className="btn-primary inline-flex items-center gap-2"
         >
           <Plus className="h-4 w-4" />
-          New subject
+          {t('subjects.newSubject')}
         </button>
       </div>
 
@@ -101,9 +107,9 @@ export function SubjectsPage() {
         ) : rows.length === 0 ? (
           <div className="py-20 text-center">
             <BookOpen className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-            <h3 className="text-lg font-semibold text-gray-800">No subjects yet</h3>
+            <h3 className="text-lg font-semibold text-gray-800">{t('subjects.noSubjectsYet')}</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Create your first subject to start organizing assignments.
+              {t('subjects.createFirstSubject')}
             </p>
             <button
               onClick={() => {
@@ -114,7 +120,7 @@ export function SubjectsPage() {
               className="mt-4 btn-primary inline-flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
-              Create first subject
+              {t('subjects.createFirstSubjectBtn')}
             </button>
           </div>
         ) : (
@@ -122,11 +128,11 @@ export function SubjectsPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-600">
                 <tr>
-                  <th className="text-left px-6 py-3 font-medium">Color</th>
-                  <th className="text-left px-6 py-3 font-medium">Name</th>
-                  <th className="text-left px-6 py-3 font-medium">Assignments</th>
-                  <th className="text-left px-6 py-3 font-medium">Created</th>
-                  <th className="text-right px-6 py-3 font-medium">Actions</th>
+                  <th className="text-left px-6 py-3 font-medium">{t('subjects.colorHeader')}</th>
+                  <th className="text-left px-6 py-3 font-medium">{t('subjects.name')}</th>
+                  <th className="text-left px-6 py-3 font-medium">{t('subjects.assignmentsHeader')}</th>
+                  <th className="text-left px-6 py-3 font-medium">{t('subjects.created')}</th>
+                  <th className="text-right px-6 py-3 font-medium">{t('subjects.actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -158,14 +164,14 @@ export function SubjectsPage() {
                           }}
                         >
                           <Pencil className="h-3.5 w-3.5" />
-                          Edit
+                          {t('subjects.edit')}
                         </button>
                         <button
                           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition"
                           onClick={() => setConfirmDel(s)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                          Delete
+                          {t('subjects.delete')}
                         </button>
                       </div>
                     </td>
@@ -179,7 +185,7 @@ export function SubjectsPage() {
 
       <Modal
         open={showForm}
-        title={editing ? 'Edit subject' : 'Create subject'}
+        title={editing ? t('subjects.editSubject') : t('subjects.createSubject')}
         onClose={() => {
           setShowForm(false);
           setEditing(null);
@@ -206,7 +212,7 @@ export function SubjectsPage() {
 
       <Modal
         open={!!confirmDel}
-        title="Delete subject?"
+        title={t('subjects.deleteSubjectTitle')}
         onClose={() => setConfirmDel(null)}
         size="sm"
       >
@@ -216,21 +222,23 @@ export function SubjectsPage() {
               <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-amber-900">
-                  Deleting “{confirmDel.name}” will NOT remove its assignments.
+                  {t('subjects.deletingNameWillNotRemove', { name: confirmDel.name })}
                 </p>
                 <p className="text-xs text-amber-800 mt-1">
-                  Existing assignments will be moved to “No subject”.{' '}
+                  {t('subjects.movedToNoSubject')}{' '}
                   {(confirmDel._count?.assignments ?? 0) > 0 && (
                     <>
-                      This affects <strong>{confirmDel._count!.assignments}</strong> assignment
-                      {confirmDel._count!.assignments > 1 ? 's' : ''}.
+                      {t('subjects.thisAffects')} <strong>{confirmDel._count!.assignments}</strong>{' '}
+                      {t('subjects.assignmentsAffected')}
+                      {confirmDel._count!.assignments > 1 ? '' : ''}
+                      .
                     </>
                   )}
                 </p>
               </div>
             </div>
             <p className="text-sm text-gray-600">
-              This action cannot be undone.
+              {t('subjects.deleteSubjectWarning')}
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -238,7 +246,7 @@ export function SubjectsPage() {
                 className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 transition disabled:opacity-50"
                 disabled={deleteMut.isPending}
               >
-                Cancel
+                {t('subjects.cancel')}
               </button>
               <button
                 onClick={async () => {
@@ -247,18 +255,18 @@ export function SubjectsPage() {
                 className="rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-semibold hover:bg-red-700 transition disabled:opacity-50"
                 disabled={deleteMut.isPending}
               >
-                {deleteMut.isPending ? 'Deleting...' : 'Yes, delete'}
+                {deleteMut.isPending ? t('subjects.deleting') : t('subjects.yesDelete')}
               </button>
             </div>
             {deleteMut.isError && (
-              <p className="text-sm text-red-600">Failed to delete. Please try again.</p>
+              <p className="text-sm text-red-600">{t('subjects.failedToDelete')}</p>
             )}
           </div>
         )}
       </Modal>
 
       <p className="text-xs text-gray-400 text-center">
-        Tip: create the 3 default subjects first —{' '}
+        {t('subjects.tip')}{' '}
         <button
           className="underline hover:text-brand-600"
           onClick={async () => {
@@ -278,13 +286,13 @@ export function SubjectsPage() {
             void queryClient.invalidateQueries({ queryKey: ['subjects-overview'] });
           }}
         >
-          create Chinese / Maths / English defaults
+          {t('subjects.createDefaults')}
         </button>
-        . Or use the{' '}
+        {t('subjects.orUse')}{' '}
         <Link to="/assignments" className="underline hover:text-brand-600">
-          Assignments
+          {t('nav.assignments')}
         </Link>{' '}
-        page to add work.
+        {t('subjects.pageToAddWork')}
       </p>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
   ChevronRight,
@@ -16,24 +17,31 @@ import {
   ListPlus,
   RefreshCw,
   X,
+  ChevronRightSquare,
+  ChevronDownSquare,
+  Check,
+  Trash,
 } from 'lucide-react';
 import {
   completeAssignment,
   createAssignment,
   createSubtask,
   deleteAssignment,
+  fetchAssignmentCounts,
   listAssignments,
   listSubjects,
+  listTaskTypes,
   reopenAssignment,
   updateAssignment,
 } from '@/services/assignments.api';
 import type {
   AssignmentResponse,
+  AssignmentCounts,
   ListAssignmentsQuery,
   Priority,
   Status,
-  AssignmentType,
   SubjectResponse,
+  TaskTypeResponse,
   CreateAssignmentPayload,
   UpdateAssignmentPayload,
 } from '@/services/assignments.api';
@@ -45,15 +53,16 @@ import {
   DueDate,
   statusMap,
   priorityMap,
-  typeMap,
 } from '@/components/ui/Badges';
 import { Modal } from '@/components/ui/Modal';
 import { AssignmentForm } from '@/components/forms/AssignmentForm';
+import { toast } from '@/stores/toast.store';
 
 type SortBy = ListAssignmentsQuery['sortBy'];
 type SortDir = 'asc' | 'desc';
 
 export function AssignmentsPage() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const [statusFilter, setStatusFilter] = useState<Status | ''>('');
@@ -73,6 +82,10 @@ export function AssignmentsPage() {
 
   const [confirmDel, setConfirmDel] = useState<AssignmentResponse | null>(null);
 
+  // 批量选择状态
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+
   const subjectQ = useQuery<SubjectResponse[]>({
     queryKey: ['subjects'],
     queryFn: listSubjects,
@@ -80,6 +93,14 @@ export function AssignmentsPage() {
     refetchOnWindowFocus: false,
   });
   const subjects = subjectQ.data || [];
+
+  const taskTypeQ = useQuery<TaskTypeResponse[]>({
+    queryKey: ['task-types'],
+    queryFn: listTaskTypes,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const taskTypes = taskTypeQ.data || [];
 
   const query: ListAssignmentsQuery = {
     topLevelOnly: true,
@@ -100,8 +121,18 @@ export function AssignmentsPage() {
     refetchOnWindowFocus: false,
   });
 
+  // 全局状态计数（按 subjectId 过滤、顶级作业，不受 50 条分页限制）
+  const countsQ = useQuery<AssignmentCounts>({
+    queryKey: ['assignment-counts', subjectFilter || null],
+    queryFn: () => fetchAssignmentCounts(subjectFilter || undefined),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+  const counts = countsQ.data;
+
   const invalidateAll = () => {
     void queryClient.invalidateQueries({ queryKey: ['assignments'] });
+    void queryClient.invalidateQueries({ queryKey: ['assignment-counts'] });
     void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     void queryClient.invalidateQueries({ queryKey: ['dashboard-recent'] });
   };
@@ -168,24 +199,31 @@ export function AssignmentsPage() {
     onError: (err) => setFormErr((err as Error).message || 'Failed to add sub-task'),
   });
 
+  const batchDeleteMut = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(ids.map((id) => deleteAssignment(id)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      return { total: ids.length, failed };
+    },
+    onSuccess: ({ total, failed }) => {
+      const ok = total - failed;
+      setSelected(new Set());
+      setShowBatchConfirm(false);
+      invalidateAll();
+      if (failed > 0) {
+        toast.warning(t('assignments.batchDeletePartial', { failed }));
+      } else {
+        toast.success(t('assignments.batchDeleted', { count: ok }));
+      }
+    },
+  });
+
   const data = assignments.data as
     | { data: AssignmentResponse[]; meta: { page: number; total: number; limit: number } }
     | undefined;
   const rows: AssignmentResponse[] = data?.data || [];
   const meta = data?.meta || { page: 1, total: 0, limit: 50 };
   const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit));
-
-  const filteredCounts = useMemo(() => {
-    let notStarted = 0;
-    let inProgress = 0;
-    let done = 0;
-    for (const a of rows) {
-      if (a.status === 'NOT_STARTED') notStarted++;
-      else if (a.status === 'IN_PROGRESS') inProgress++;
-      else done++;
-    }
-    return { notStarted, inProgress, done };
-  }, [rows]);
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
@@ -235,6 +273,59 @@ export function AssignmentsPage() {
     );
   };
 
+  // 重新展开/收起全部（基于当前可见行）
+  const expandableParentIds = rows
+    .filter((a) => a.children.length > 0)
+    .map((a) => a.id);
+  const hasParents = expandableParentIds.length > 0;
+  const expandedCount = expanded.size;
+  const allExpanded = hasParents && expandableParentIds.every((id) => expanded.has(id));
+
+  const rangeStart = meta.total === 0 ? 0 : (page - 1) * meta.limit + 1;
+  const rangeEnd = Math.min(page * meta.limit, meta.total);
+
+  const toggleAll = () => {
+    if (allExpanded) setExpanded(new Set());
+    else setExpanded(new Set(expandableParentIds));
+  };
+
+  // 批量选择：可见行 = 当前页父任务 + 已展开父任务的子任务
+  const visibleIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const a of rows) {
+      ids.push(a.id);
+      if (expanded.has(a.id)) {
+        for (const c of a.children) ids.push(c.id);
+      }
+    }
+    return ids;
+  }, [rows, expanded]);
+
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someVisibleSelected =
+    selected.size > 0 && visibleIds.some((id) => selected.has(id));
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      // 取消当前页所有可见行的选择（保留其它页残留可一并清除）
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(visibleIds));
+    }
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -242,35 +333,54 @@ export function AssignmentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ListTodo className="h-7 w-7 text-brand-500" />
-            Assignments
+            {t('assignments.title_')}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
             {meta.total === 0
-              ? 'Create your first assignment to get started.'
-              : `Showing ${rows.length} of ${meta.total}. Manage work, break into sub-tasks, and track progress.`}
+              ? t('assignments.createFirst')
+              : t('assignments.showingRange', { start: rangeStart, end: rangeEnd, total: meta.total })}
           </p>
         </div>
-        <button
-          onClick={() => {
-            setEditing(null);
-            setFormDefaults({});
-            setFormIsSubtask(false);
-            setFormErr(null);
-            setShowForm(true);
-          }}
-          className="btn-primary inline-flex items-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          New assignment
-        </button>
+        <div className="flex items-center gap-2">
+          {hasParents && (
+            <button
+              onClick={toggleAll}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-white/10 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-white/10"
+              title={allExpanded ? t('assignments.collapseAll') : t('assignments.expandAll')}
+            >
+              {allExpanded ? (
+                <ChevronRightSquare className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDownSquare className="h-3.5 w-3.5" />
+              )}
+              <span>{allExpanded ? t('assignments.collapseAll') : t('assignments.expandAll')}</span>
+              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] tabular-nums text-gray-500 dark:bg-white/10 dark:text-gray-400">
+                {expandedCount}/{expandableParentIds.length}
+              </span>
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setEditing(null);
+              setFormDefaults({});
+              setFormIsSubtask(false);
+              setFormErr(null);
+              setShowForm(true);
+            }}
+            className="btn-primary inline-flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            {t('assignments.newAssignment')}
+          </button>
+        </div>
       </div>
 
-      {/* Quick summary chips */}
-      {(assignments.isSuccess || assignments.isFetching) && rows.length > 0 && (
+      {/* Quick summary chips —— 计数来自全局 counts（按科目过滤、顶级作业，不受分页限制） */}
+      {(countsQ.isSuccess || countsQ.isFetching) && (counts ? counts.total > 0 : rows.length > 0) && (
         <div className="flex flex-wrap gap-2">
           <QuickChip
-            label="All"
-            count={rows.length}
+            label={t('common.all')}
+            count={counts?.total ?? 0}
             active={!statusFilter}
             onClick={() => {
               setStatusFilter('');
@@ -278,8 +388,8 @@ export function AssignmentsPage() {
             }}
           />
           <QuickChip
-            label={statusMap.NOT_STARTED.label}
-            count={filteredCounts.notStarted}
+            label={t('badges.notStarted')}
+            count={counts?.notStarted ?? 0}
             dot={statusMap.NOT_STARTED.dot}
             active={statusFilter === 'NOT_STARTED'}
             onClick={() => {
@@ -288,8 +398,8 @@ export function AssignmentsPage() {
             }}
           />
           <QuickChip
-            label={statusMap.IN_PROGRESS.label}
-            count={filteredCounts.inProgress}
+            label={t('badges.inProgress')}
+            count={counts?.inProgress ?? 0}
             dot={statusMap.IN_PROGRESS.dot}
             active={statusFilter === 'IN_PROGRESS'}
             onClick={() => {
@@ -298,8 +408,8 @@ export function AssignmentsPage() {
             }}
           />
           <QuickChip
-            label={statusMap.DONE.label}
-            count={filteredCounts.done}
+            label={t('badges.done')}
+            count={counts?.done ?? 0}
             dot={statusMap.DONE.dot}
             active={statusFilter === 'DONE'}
             onClick={() => {
@@ -316,7 +426,7 @@ export function AssignmentsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search by title or description…"
+            placeholder={t('assignments.searchPlaceholder')}
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -346,7 +456,7 @@ export function AssignmentsPage() {
               setPage(1);
             }}
             options={[
-              { value: '', label: 'All subjects' },
+              { value: '', label: t('assignments.allSubjects') },
               ...subjects.map((s) => ({ value: s.id, label: s.name })),
             ]}
           />
@@ -357,22 +467,48 @@ export function AssignmentsPage() {
               setPage(1);
             }}
             options={[
-              { value: '', label: 'All priorities' },
+              { value: '', label: t('assignments.allPriorities') },
               ...(['LOW', 'MEDIUM', 'HIGH'] as Priority[]).map((p) => ({
                 value: p,
-                label: priorityMap[p].label,
+                label: t(priorityMap[p].label.startsWith('L') ? 'badges.low' : p === 'MEDIUM' ? 'badges.medium' : 'badges.high'),
               })),
             ]}
           />
           <button
             onClick={() => queryClient.refetchQueries({ queryKey: ['assignments'] })}
             className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 transition"
-            title="Refresh"
+            title={t('assignments.refresh')}
           >
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
       </div>
+
+      {/* 批量操作工具条 */}
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50/60 px-4 py-2.5 dark:border-brand-800/40 dark:bg-brand-900/15">
+          <div className="flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-300">
+            <Check className="h-4 w-4" />
+            {t('assignments.selected', { count: selected.size })}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={clearSelection}
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-white/10 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-white/10"
+            >
+              {t('assignments.clearSelection')}
+            </button>
+            <button
+              onClick={() => setShowBatchConfirm(true)}
+              disabled={batchDeleteMut.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+            >
+              <Trash className="h-3.5 w-3.5" />
+              {t('assignments.batchDeleteSelected')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Notion-style Table */}
       <div className="card overflow-hidden border border-gray-200 !p-0 !shadow-sm">
@@ -380,22 +516,46 @@ export function AssignmentsPage() {
           <table className="w-full min-w-[920px] border-collapse text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="w-10 px-2 py-3 text-center">
+                  <button
+                    onClick={toggleSelectAllVisible}
+                    disabled={visibleIds.length === 0}
+                    className={`inline-flex h-5 w-5 items-center justify-center rounded border-2 transition disabled:opacity-40 ${
+                      allVisibleSelected
+                        ? 'bg-brand-500 border-brand-500 text-white'
+                        : someVisibleSelected
+                          ? 'border-brand-400 bg-brand-50 text-brand-500'
+                          : 'border-gray-300 hover:border-brand-400 dark:border-gray-600'
+                    }`}
+                    title={t('assignments.selectAll')}
+                    aria-label={t('assignments.selectAll')}
+                    aria-checked={allVisibleSelected}
+                  >
+                    {allVisibleSelected ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : someVisibleSelected ? (
+                      <span className="h-0.5 w-2.5 rounded bg-brand-500" />
+                    ) : null}
+                  </button>
+                </th>
                 <th className="w-8 px-2 py-3"></th>
                 <th className="text-left px-3 py-3 w-[30%]">
-                  <SortHeader label="Assignment" field="title" />
+                  <SortHeader label={t('assignments.columnTitle')} field="title" />
                 </th>
                 <th className="text-left px-3 py-3 w-[120px]">
-                  <SortHeader label="Status" field="status" />
+                  <SortHeader label={t('assignments.columnStatus')} field="status" />
                 </th>
                 <th className="text-left px-3 py-3 w-[120px]">
-                  <SortHeader label="Subject" field="title" />
+                  <SortHeader label={t('assignments.columnSubject')} field="subject" />
                 </th>
                 <th className="text-left px-3 py-3 w-[100px]">
-                  <SortHeader label="Priority" field="priority" />
+                  <SortHeader label={t('assignments.columnPriority')} field="priority" />
                 </th>
-                <th className="text-left px-3 py-3 w-[110px]">Type</th>
+                <th className="text-left px-3 py-3 w-[110px]">
+                  <SortHeader label={t('assignments.columnType')} field="type" />
+                </th>
                 <th className="text-left px-3 py-3 w-[150px]">
-                  <SortHeader label="Due date" field="dueDate" />
+                  <SortHeader label={t('assignments.columnDue')} field="dueDate" />
                 </th>
                 <th className="w-[100px] px-3 py-3"></th>
               </tr>
@@ -404,7 +564,7 @@ export function AssignmentsPage() {
               {assignments.isLoading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i} className="border-b border-gray-100">
-                    {Array.from({ length: 8 }).map((__, j) => (
+                    {Array.from({ length: 9 }).map((__, j) => (
                       <td key={j} className="px-3 py-3">
                         <div className="h-4 bg-gray-100 animate-pulse rounded w-3/4" />
                       </td>
@@ -413,11 +573,11 @@ export function AssignmentsPage() {
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-20 text-center">
+                  <td colSpan={9} className="px-6 py-20 text-center">
                     <ListTodo className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-                    <h3 className="text-lg font-semibold text-gray-800">No assignments match</h3>
+                    <h3 className="text-lg font-semibold text-gray-800">{t('assignments.noMatches')}</h3>
                     <p className="text-sm text-gray-500 mt-1">
-                      Try clearing filters, or create a new assignment.
+                      {t('assignments.tryClearingFilters')}
                     </p>
                   </td>
                 </tr>
@@ -432,6 +592,8 @@ export function AssignmentsPage() {
                       depth={0}
                       isOpen={isOpen}
                       hasChildren={!!a.children.length}
+                      selected={selected.has(a.id)}
+                      onToggleSelect={() => toggleSelect(a.id)}
                       onToggle={() => toggleExpand(a.id)}
                       onToggleStatus={async (st) => {
                         await statusMut.mutateAsync({ id: a.id, status: st });
@@ -459,14 +621,17 @@ export function AssignmentsPage() {
                     />
                   );
                   if (isOpen) {
-                    for (const c of a.children) {
+                    a.children.forEach((c, idx) => {
                       out.push(
                         <AssignmentRow
                           key={c.id}
                           a={c as unknown as AssignmentResponse}
                           depth={1}
-                          hasChildren={false}
                           isOpen={false}
+                          hasChildren={false}
+                          isLastChild={idx === a.children.length - 1}
+                          selected={selected.has(c.id)}
+                          onToggleSelect={() => toggleSelect(c.id)}
                           onToggleStatus={async (st) => {
                             await statusMut.mutateAsync({ id: c.id, status: st });
                           }}
@@ -482,7 +647,7 @@ export function AssignmentsPage() {
                           isChild
                         />
                       );
-                    }
+                    });
                   }
                   return out;
                 })
@@ -495,26 +660,29 @@ export function AssignmentsPage() {
         {rows.length > 0 && meta.total > meta.limit && (
           <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 bg-gray-50/50">
             <p className="text-xs text-gray-500">
-              Showing {(page - 1) * meta.limit + 1}–
-              {Math.min(page * meta.limit, meta.total)} of {meta.total}
+              {t('assignments.showingRange', {
+                start: (page - 1) * meta.limit + 1,
+                end: Math.min(page * meta.limit, meta.total),
+                total: meta.total,
+              })}
             </p>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="rounded-md border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="rounded-md border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-white/10 dark:bg-gray-800 dark:text-gray-300"
               >
-                Previous
+                {t('common.previous')}
               </button>
-              <span className="px-3 text-xs tabular-nums text-gray-600">
+              <span className="px-3 text-xs tabular-nums text-gray-600 dark:text-gray-400">
                 {page} / {totalPages}
               </span>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                className="rounded-md border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="rounded-md border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-white/10 dark:bg-gray-800 dark:text-gray-300"
               >
-                Next
+                {t('common.next')}
               </button>
             </div>
           </div>
@@ -526,10 +694,10 @@ export function AssignmentsPage() {
         open={showForm}
         title={
           editing
-            ? 'Edit assignment'
+            ? t('assignments.editAssignment')
             : formIsSubtask
-              ? 'Add sub-task'
-              : 'Create new assignment'
+              ? t('assignments.addSubtaskTitle')
+              : t('assignments.createAssignment')
         }
         onClose={() => {
           setShowForm(false);
@@ -540,6 +708,7 @@ export function AssignmentsPage() {
         <AssignmentForm
           initial={editing}
           subjects={subjects}
+          taskTypes={taskTypes}
           defaultValues={formDefaults}
           isSubtask={formIsSubtask}
           onCancel={() => {
@@ -555,7 +724,7 @@ export function AssignmentsPage() {
       {/* Delete confirm */}
       <Modal
         open={!!confirmDel}
-        title="Delete assignment?"
+        title={t('assignments.confirmDelete')}
         onClose={() => setConfirmDel(null)}
         size="sm"
       >
@@ -569,8 +738,7 @@ export function AssignmentsPage() {
               </div>
               {(confirmDel.children?.length ?? 0) > 0 && (
                 <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                  ⚠️ {confirmDel.children!.length} sub-task
-                  {confirmDel.children!.length > 1 ? 's' : ''} will also be deleted (cascade).
+                  ⚠️ {t('assignments.subtasksCountWillAlsoBeDeleted', { count: confirmDel.children!.length })}
                 </p>
               )}
             </div>
@@ -580,7 +748,7 @@ export function AssignmentsPage() {
                 className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                 disabled={deleteMut.isPending}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={async () => {
@@ -589,14 +757,50 @@ export function AssignmentsPage() {
                 className="rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
                 disabled={deleteMut.isPending}
               >
-                {deleteMut.isPending ? 'Deleting...' : 'Yes, delete'}
+                {deleteMut.isPending ? t('assignments.deleting') : t('assignments.yesDelete')}
               </button>
             </div>
             {deleteMut.isError && (
-              <p className="text-sm text-red-600">Failed to delete. Please try again.</p>
+              <p className="text-sm text-red-600">{t('assignments.failedToDelete')}</p>
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Batch delete confirm */}
+      <Modal
+        open={showBatchConfirm}
+        title={t('assignments.batchDeleteConfirm')}
+        onClose={() => setShowBatchConfirm(false)}
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+            <p className="text-sm text-gray-700 dark:text-gray-200">
+              {t('assignments.batchDeleteWarning', { count: selected.size })}
+            </p>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={() => setShowBatchConfirm(false)}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10"
+              disabled={batchDeleteMut.isPending}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              onClick={async () => {
+                await batchDeleteMut.mutateAsync(Array.from(selected));
+              }}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              disabled={batchDeleteMut.isPending || selected.size === 0}
+            >
+              {batchDeleteMut.isPending
+                ? t('assignments.deleting')
+                : t('assignments.batchDeleteSelected')}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
@@ -663,24 +867,35 @@ function Select({
   );
 }
 
-function inlineSelect(
-  current: string,
-  options: { value: string; label: string }[],
-  onChange: (v: string) => void,
-  className = ''
-) {
+// 状态列：带颜色区分的内联选择器（药丸 + 状态圆点 + 透明 select）
+function StatusSelect({
+  status,
+  options,
+  onChange,
+}: {
+  status: Status;
+  options: { value: string; label: string }[];
+  onChange: (v: Status) => void;
+}) {
+  const s = statusMap[status];
   return (
-    <select
-      value={current}
-      onChange={(e) => onChange(e.target.value)}
-      className={`rounded border border-gray-200 bg-white px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/30 ${className}`}
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${s.className}`}
     >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
+      <select
+        value={status}
+        onChange={(e) => onChange(e.target.value as Status)}
+        className="cursor-pointer bg-transparent text-xs font-medium focus:outline-none"
+        aria-label="status"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -694,7 +909,10 @@ function AssignmentRow({
   onEdit,
   onAddSubtask,
   onDelete,
+  selected = false,
+  onToggleSelect,
   isChild = false,
+  isLastChild = false,
 }: {
   a: AssignmentResponse;
   depth: 0 | 1;
@@ -705,182 +923,268 @@ function AssignmentRow({
   onEdit: () => void;
   onAddSubtask: () => void;
   onDelete: () => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
   isChild?: boolean;
+  isLastChild?: boolean;
 }) {
+  const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const statusOptions: { value: Status; label: string }[] = [
     { value: 'NOT_STARTED', label: statusMap.NOT_STARTED.label },
     { value: 'IN_PROGRESS', label: statusMap.IN_PROGRESS.label },
     { value: 'DONE', label: statusMap.DONE.label },
   ];
-  const priorityOptions: { value: Priority; label: string }[] = [
-    { value: 'LOW', label: priorityMap.LOW.label },
-    { value: 'MEDIUM', label: priorityMap.MEDIUM.label },
-    { value: 'HIGH', label: priorityMap.HIGH.label },
-  ];
-  const typeOptions: { value: AssignmentType; label: string }[] = (
-    ['WRITTEN', 'COMPOSITE', 'WRITING', 'WATCHING', 'PREVIEW', 'ORAL'] as AssignmentType[]
-  ).map((t) => ({ value: t, label: typeMap[t].label }));
 
-  const indentStyle = depth === 1 ? { paddingLeft: '2.5rem' } : undefined;
+  // 父任务的子任务进度
+  const childTotal = a.children?.length ?? 0;
+  const childDone = a.children?.filter((c) => c.status === 'DONE').length ?? 0;
+  const childProgressPct = childTotal > 0 ? Math.round((childDone / childTotal) * 100) : 0;
+  const allChildrenDone = childTotal > 0 && childDone === childTotal;
+  const someChildrenDone = childDone > 0 && !allChildrenDone;
+
+  // 树形几何参数（px）
+  const GUIDE_LEFT = 20; // 垂直引导线 x 偏移
+  const CONNECTOR_WIDTH = 12; // 水平连接线宽度
 
   const done = a.status === 'DONE';
 
+  // 父进度徽章配色
+  const progressTone = allChildrenDone
+    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+    : someChildrenDone
+      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+      : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400';
+  const progressBarTone = allChildrenDone
+    ? 'bg-green-500'
+    : someChildrenDone
+      ? 'bg-amber-500'
+      : 'bg-gray-300 dark:bg-gray-600';
+
   return (
-    <tr
-      className={`border-b border-gray-100 align-middle hover:bg-gray-50/60 transition ${
-        isChild ? 'bg-brand-50/20' : ''
-      }`}
-    >
-      <td className="px-2 py-2.5 text-right">
-        {hasChildren ? (
+    <>
+      <tr
+        className={`group border-b border-gray-100 align-middle transition ${
+          selected
+            ? 'bg-brand-50/40 dark:bg-brand-900/15'
+            : isChild
+              ? 'bg-brand-50/10 hover:bg-brand-50/30 dark:bg-brand-900/5 dark:hover:bg-brand-900/10'
+              : 'hover:bg-gray-50/60 dark:hover:bg-white/5'
+        }`}
+      >
+        {/* 批量选择复选框 */}
+        <td className="w-10 px-2 py-2.5 text-center">
           <button
-            onClick={onToggle}
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition"
-            aria-label={isOpen ? 'Collapse' : 'Expand'}
-          >
-            {isOpen ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-        ) : depth === 0 ? (
-          <span className="inline-block h-6 w-6" />
-        ) : null}
-      </td>
-      <td className="px-3 py-2.5" style={indentStyle}>
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            onClick={async () =>
-              onToggleStatus(done ? 'NOT_STARTED' : 'DONE')
-            }
-            title={done ? 'Mark as not started' : 'Mark as done'}
-            className={`flex-shrink-0 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${
-              done
-                ? 'bg-green-500 border-green-500 text-white'
-                : 'border-gray-300 hover:border-brand-500'
+            onClick={onToggleSelect}
+            className={`inline-flex h-5 w-5 items-center justify-center rounded border-2 transition ${
+              selected
+                ? 'bg-brand-500 border-brand-500 text-white'
+                : 'border-gray-300 hover:border-brand-400 dark:border-gray-600 dark:hover:border-brand-400'
             }`}
+            aria-label={t('assignments.select')}
+            aria-checked={selected}
+            role="checkbox"
           >
-            {done && <CheckCircle2 className="h-3.5 w-3.5" />}
+            {selected && <Check className="h-3.5 w-3.5" />}
           </button>
-          <div className="min-w-0 flex-1">
-            <p
-              className={`truncate font-medium text-gray-900 ${
-                done ? 'line-through text-gray-400' : ''
+        </td>
+        {/* 展开/收起 或 占位 */}
+        <td className="w-8 px-2 py-2.5 text-center">
+          {hasChildren ? (
+            <button
+              onClick={onToggle}
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              aria-label={isOpen ? t('assignments.collapse') : t('assignments.expand')}
+              aria-expanded={isOpen}
+              title={
+                isOpen
+                  ? t('assignments.collapseHint', { count: childTotal })
+                  : t('assignments.expandHint', { count: childTotal })
+              }
+            >
+              {isOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+          ) : (
+            <span className="inline-block h-6 w-6" />
+          )}
+        </td>
+
+        {/* 标题列（含树形引导线） */}
+        <td
+          className="relative px-3 py-2.5"
+          style={isChild ? { paddingLeft: `${GUIDE_LEFT + CONNECTOR_WIDTH}px` } : undefined}
+        >
+          {isChild && (
+            <>
+              {/* 垂直引导线：非末子任务占满整行，末子任务只到中线 */}
+              <span
+                className="pointer-events-none absolute w-px bg-gray-200 dark:bg-gray-700"
+                style={
+                  isLastChild
+                    ? { left: `${GUIDE_LEFT}px`, top: 0, height: '50%' }
+                    : { left: `${GUIDE_LEFT}px`, top: 0, bottom: 0 }
+                }
+              />
+              {/* 水平连接线：从垂直线连向复选框 */}
+              <span
+                className="pointer-events-none absolute h-px bg-gray-200 dark:bg-gray-700"
+                style={{ left: `${GUIDE_LEFT}px`, top: '50%', width: `${CONNECTOR_WIDTH}px` }}
+              />
+            </>
+          )}
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={async () => onToggleStatus(done ? 'NOT_STARTED' : 'DONE')}
+              title={done ? t('assignments.markAsNotStarted') : t('assignments.markAsDone')}
+              className={`flex-shrink-0 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${
+                done
+                  ? 'bg-green-500 border-green-500 text-white'
+                  : 'border-gray-300 hover:border-brand-500 dark:border-gray-600'
               }`}
             >
-              {a.title}
-            </p>
-            {a.description && (
-              <p className="truncate text-xs text-gray-400 max-w-xl">
-                {a.description}
+              {done && <CheckCircle2 className="h-3.5 w-3.5" />}
+            </button>
+            <div className="min-w-0 flex-1">
+              <p
+                className={`truncate font-medium text-gray-900 dark:text-gray-100 ${
+                  done ? 'line-through text-gray-400 dark:text-gray-500' : ''
+                }`}
+              >
+                {a.title}
               </p>
+              {a.description && (
+                <p className="truncate text-xs text-gray-400 max-w-xl dark:text-gray-500">
+                  {a.description}
+                </p>
+              )}
+            </div>
+
+            {/* 父任务进度徽章 + 迷你进度条 */}
+            {hasChildren && (
+              <div className="flex flex-shrink-0 items-center gap-1.5">
+                <div className="hidden sm:block h-1.5 w-12 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div
+                    className={`h-full rounded-full transition-all ${progressBarTone}`}
+                    style={{ width: `${childProgressPct}%` }}
+                  />
+                </div>
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${progressTone}`}
+                  title={t('assignments.subtasksProgress', { done: childDone, total: childTotal })}
+                >
+                  {childDone}/{childTotal}
+                </span>
+              </div>
             )}
           </div>
-          {hasChildren && (
-            <span className="flex-shrink-0 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold tabular-nums px-1.5 py-0.5">
-              {a.children.length}
-            </span>
+        </td>
+
+        <td className="px-3 py-2.5">
+          <StatusSelect
+            status={a.status}
+            options={statusOptions}
+            onChange={(v) => onToggleStatus(v)}
+          />
+        </td>
+        <td className="px-3 py-2.5">
+          {a.subject ? (
+            <SubjectChip subject={a.subject} />
+          ) : (
+            <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
           )}
-        </div>
-      </td>
-      <td className="px-3 py-2.5">
-        {inlineSelect(a.status, statusOptions, (v) => onToggleStatus(v as Status))}
-      </td>
-      <td className="px-3 py-2.5">
-        {a.subject ? (
-          <SubjectChip subject={a.subject} />
-        ) : (
-          <span className="text-xs text-gray-400">—</span>
-        )}
-      </td>
-      <td className="px-3 py-2.5">
-        <PriorityBadge priority={a.priority} />
-      </td>
-      <td className="px-3 py-2.5">
-        <TypeBadge type={a.type} />
-      </td>
-      <td className="px-3 py-2.5">
-        <DueDate date={a.dueDate} />
-      </td>
-      <td className="px-3 py-2.5 text-right">
-        <div className="relative inline-block">
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
-            onBlur={() => setTimeout(() => setMenuOpen(false), 120)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
-            aria-haspopup="menu"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-20 w-36 rounded-lg bg-white border border-gray-200 shadow-lg py-1 text-left">
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onEdit();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit
-              </button>
-              {!isChild && (
+        </td>
+        <td className="px-3 py-2.5">
+          <PriorityBadge priority={a.priority} />
+        </td>
+        <td className="px-3 py-2.5">
+          <TypeBadge type={a.type} taskType={a.taskType} />
+        </td>
+        <td className="px-3 py-2.5">
+          <DueDate date={a.dueDate} />
+        </td>
+        <td className="px-3 py-2.5 text-right">
+          <div className="relative inline-block">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              onBlur={() => setTimeout(() => setMenuOpen(false), 120)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-20 w-36 rounded-lg border border-gray-200 bg-white py-1 text-left shadow-lg dark:border-gray-700 dark:bg-gray-800">
                 <button
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     setMenuOpen(false);
-                    onAddSubtask();
+                    onEdit();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700"
                 >
-                  <ListPlus className="h-3.5 w-3.5" />
-                  Add sub-task
+                  <Pencil className="h-3.5 w-3.5" />
+                  {t('assignments.edit')}
                 </button>
-              )}
-              {a.status !== 'DONE' ? (
+                {!isChild && (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onAddSubtask();
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700"
+                  >
+                    <ListPlus className="h-3.5 w-3.5" />
+                    {t('assignments.addSubtask')}
+                  </button>
+                )}
+                {a.status !== 'DONE' ? (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={async () => {
+                      setMenuOpen(false);
+                      await onToggleStatus('DONE');
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {t('assignments.markAsDone')}
+                  </button>
+                ) : (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={async () => {
+                      setMenuOpen(false);
+                      await onToggleStatus('NOT_STARTED');
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    {t('assignments.reopen')}
+                  </button>
+                )}
+                <div className="my-1 h-px bg-gray-100 dark:bg-gray-700" />
                 <button
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={async () => {
+                  onClick={() => {
                     setMenuOpen(false);
-                    await onToggleStatus('DONE');
+                    onDelete();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-green-700 hover:bg-green-50"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Mark done
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t('assignments.delete')}
                 </button>
-              ) : (
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={async () => {
-                    setMenuOpen(false);
-                    await onToggleStatus('NOT_STARTED');
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  Reopen
-                </button>
-              )}
-              <div className="my-1 h-px bg-gray-100" />
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDelete();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
-              </button>
-            </div>
-          )}
-        </div>
-      </td>
-    </tr>
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    </>
   );
 }

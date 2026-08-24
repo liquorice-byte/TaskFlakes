@@ -190,8 +190,11 @@ export const exportService = {
         subjectsCreated++;
       }
 
-      // 3) Assignments: two-pass. First create ALL with parentId=null initially, remember title->id mapping, then second pass wire up parents.
-      const assignmentTitleToId = new Map<string, string>();
+      // 3) Assignments: two-pass. First create ALL with parentId=null initially, remember
+      //    title -> [candidates] (with subject) for parent resolution, then second pass
+      //    wire up parents. Subject-aware matching avoids cross-subject mis-wiring when
+      //    duplicate titles exist across subjects (e.g. "练习卷套装" in both Maths & English).
+      const assignmentTitleToId = new Map<string, Array<{ id: string; subjectName: string | null }>>();
       let assignmentsCreated = 0;
       let assignmentsSkipped = 0;
 
@@ -209,6 +212,8 @@ export const exportService = {
           subjectId: string | null;
         };
         parentTitle: string | null;
+        subjectName: string | null;
+        createdId: string;
       };
       const pass1: Pass1[] = [];
       for (let i = 0; i < cleanAssignments.length; i++) {
@@ -225,25 +230,37 @@ export const exportService = {
           completedAt: a.completedAt,
           subjectId,
         };
-        pass1.push({ idx: i, payload, parentTitle: a.parentTitle });
+        pass1.push({ idx: i, payload, parentTitle: a.parentTitle, subjectName: a.subjectName ?? null, createdId: '' });
       }
 
       for (const p of pass1) {
         const row = await tx.assignment.create({ data: p.payload, select: { id: true, title: true } });
-        if (!assignmentTitleToId.has(row.title)) assignmentTitleToId.set(row.title, row.id);
+        p.createdId = row.id;
+        // 记录该标题的全部候选（含学科），供 pass 2 按学科择优
+        let bucket = assignmentTitleToId.get(row.title);
+        if (!bucket) {
+          bucket = [];
+          assignmentTitleToId.set(row.title, bucket);
+        }
+        bucket.push({ id: row.id, subjectName: p.subjectName });
         assignmentsCreated++;
       }
       void assignmentsSkipped;
 
-      // Second pass: wire parents
+      // Second pass: wire parents. 优先选同学科父项；无同学科候选时回退首个。
       for (let i = 0; i < pass1.length; i++) {
         const p = pass1[i];
         if (!p.parentTitle) continue;
-        const parentId = assignmentTitleToId.get(p.parentTitle);
-        if (!parentId) continue;
-        const childTitle = cleanAssignments[i].title;
-        const childId = assignmentTitleToId.get(childTitle);
-        if (!childId || childId === parentId) continue;
+        const candidates = assignmentTitleToId.get(p.parentTitle);
+        if (!candidates || candidates.length === 0) continue;
+        let parent = candidates[0];
+        if (p.subjectName) {
+          const sameSubject = candidates.find((c) => c.subjectName && c.subjectName === p.subjectName);
+          if (sameSubject) parent = sameSubject;
+        }
+        const parentId = parent.id;
+        const childId = p.createdId;
+        if (childId === parentId) continue;
         await tx.assignment.update({ where: { id: childId }, data: { parentId } });
       }
 
